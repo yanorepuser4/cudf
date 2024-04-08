@@ -262,27 +262,7 @@ cdef void release_arrow_device_array_py_capsule(object device_array_capsule) noe
 
 
 def table_to_device_array(Table tbl):
-    # TODO: We need to define a version of to_arrow_device that accepts a
-    # table_view and does not assume ownership of the data in order to be able
-    # to do this without copying. That is also something we will need for
-    # creating an arrow host array, so we can tackle those at the same time.
-    # That API must follow the usual libcudf rules for ownership: it is the
-    # caller's responsibility to ensure that the data is not deallocated while
-    # the ArrowDeviceArray constructed from the table_view is in scope. In
-    # pylibcudf we can manage this by simply tacking all of the underlying
-    # buffers onto the capsule since it's a PyObject. It's release callback
-    # should be a no-op.
-    cdef table* tbl_copy = new table(tbl.view())
-    cdef unique_ptr[ArrowDeviceArray] device_array_ptr = to_arrow_device(
-        move(dereference(tbl_copy))
-    )
-    # # If we want this API to appear synchronous in Python we can add the sync
-    # # here, but that's probably not desirable. This code is mostly here as a
-    # # demo right now.
-    # ccudart.cudaEventSynchronize(
-    #     dereference(<ccudart.cudaEvent_t *> device_array_ptr.get().sync_event)
-    # )
-    del tbl_copy
+    cdef unique_ptr[ArrowDeviceArray] device_array_ptr = to_arrow_device(tbl.view())
 
     cdef ArrowDeviceArray* raw_device_array_ptr = device_array_ptr.release()
     capsule = pycapsule.PyCapsule_New(

@@ -66,4 +66,5 @@ cdef extern from "cudf/interop.hpp" namespace "cudf" \
         const table_view& tbl,
         const vector[column_metadata]& metadata,
     ) except +
-    cdef unique_ptr[ArrowDeviceArray] to_arrow_device(table tbl) except +
+
+    cdef unique_ptr[ArrowDeviceArray] to_arrow_device(table_view tbl) except +
