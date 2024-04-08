@@ -16,16 +16,13 @@ from pyarrow import lib as pa
 # from cuda cimport ccudart
 
 from cudf._lib.cpp.interop cimport (
-    ArrowDeviceArray,
-    ArrowSchema,
     column_metadata,
     from_arrow as cpp_from_arrow,
     to_arrow as cpp_to_arrow,
-    to_arrow_device,
-    to_arrow_schema,
 )
 from cudf._lib.cpp.scalar.scalar cimport fixed_point_scalar, scalar
 from cudf._lib.cpp.table.table cimport table
+from cudf._lib.cpp.table.table_view cimport table_view
 from cudf._lib.cpp.wrappers.decimals cimport (
     decimal32,
     decimal64,
@@ -230,6 +227,44 @@ cdef void release_arrow_schema_py_capsule(object schema_capsule) noexcept:
     free(schema)
 
 
+cdef extern from *:
+    # Rather than exporting the underlying functions directly to Cython, we expose
+    # these wrappers that handle the release to avoid needing to teach Cython how
+    # to handle unique_ptrs with custom deleters that aren't default constructible.
+    """
+    ArrowSchema* to_arrow_schema_raw(
+      cudf::table_view const& input,
+      cudf::host_span<cudf::column_metadata const> metadata) {
+      return to_arrow_schema(input, metadata).release();
+    }
+    ArrowDeviceArray* to_arrow_device_raw(
+      cudf::table_view tbl,
+      rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+      rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource()) {
+      return cudf::to_arrow_device(tbl, stream, mr).release();
+    }
+    """
+    cdef ArrowSchema *to_arrow_schema_raw(
+        const table_view& tbl,
+        const vector[column_metadata]& metadata,
+    ) except + nogil
+    cdef ArrowDeviceArray* to_arrow_device_raw(table_view tbl) except + nogil
+
+    # The minimal declarations for Arrow C Data Interface types needed for the
+    # Cython implementations.
+    cdef struct ArrowSchema:
+        void (*release)(ArrowSchema*) noexcept nogil
+
+    cdef struct ArrowArray:
+        void (*release)(ArrowArray*) noexcept nogil
+
+    cdef struct ArrowArrayStream:
+        void (*release)(ArrowArrayStream*) noexcept nogil
+
+    cdef struct ArrowDeviceArray:
+        ArrowArray array
+
+
 def table_to_schema(Table tbl, metadata):
     if metadata is None:
         metadata = [ColumnMetadata() for _ in range(len(tbl.columns()))]
@@ -238,9 +273,11 @@ def table_to_schema(Table tbl, metadata):
     cdef vector[column_metadata] c_metadata
     for meta in metadata:
         c_metadata.push_back(_metadata_to_libcudf(meta))
-    cdef unique_ptr[ArrowSchema] schema_ptr = to_arrow_schema(tbl.view(), c_metadata)
 
-    cdef ArrowSchema* raw_schema_ptr = schema_ptr.release()
+    cdef ArrowSchema* raw_schema_ptr
+    with nogil:
+        raw_schema_ptr = to_arrow_schema_raw(tbl.view(), c_metadata)
+
     capsule = pycapsule.PyCapsule_New(
         <void*>raw_schema_ptr,
         'arrow_schema',
@@ -262,9 +299,10 @@ cdef void release_arrow_device_array_py_capsule(object device_array_capsule) noe
 
 
 def table_to_device_array(Table tbl):
-    cdef unique_ptr[ArrowDeviceArray] device_array_ptr = to_arrow_device(tbl.view())
+    cdef ArrowDeviceArray* raw_device_array_ptr
+    with nogil:
+        raw_device_array_ptr = to_arrow_device_raw(tbl.view())
 
-    cdef ArrowDeviceArray* raw_device_array_ptr = device_array_ptr.release()
     capsule = pycapsule.PyCapsule_New(
         <void*>raw_device_array_ptr,
         'arrow_device_array',

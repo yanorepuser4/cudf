@@ -17,24 +17,6 @@ cdef extern from "dlpack/dlpack.h" nogil:
         void(*deleter)(DLManagedTensor*) except +
 
 
-# These aren't really in interop.hpp, we're just faking it
-cdef extern from *:
-    cdef struct ArrowSchema:
-        void (*release)(ArrowSchema*) noexcept nogil
-
-    cdef struct ArrowArray:
-        void (*release)(ArrowArray*) noexcept nogil
-
-    cdef struct ArrowArrayStream:
-        void (*release)(ArrowArrayStream*) noexcept nogil
-
-    # We need this much available to be able to release it, so it can't be
-    # completely opaque to Cython.
-    cdef struct ArrowDeviceArray:
-        ArrowArray array
-        void* sync_event
-
-
 cdef extern from "cudf/interop.hpp" namespace "cudf" \
         nogil:
     cdef unique_ptr[table] from_dlpack(const DLManagedTensor* tensor
@@ -61,10 +43,3 @@ cdef extern from "cudf/interop.hpp" namespace "cudf" \
         const scalar& input,
         column_metadata metadata,
     ) except +
-
-    cdef unique_ptr[ArrowSchema] to_arrow_schema(
-        const table_view& tbl,
-        const vector[column_metadata]& metadata,
-    ) except +
-
-    cdef unique_ptr[ArrowDeviceArray] to_arrow_device(table_view tbl) except +
